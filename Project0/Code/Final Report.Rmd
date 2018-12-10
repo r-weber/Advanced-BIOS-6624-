@@ -1,0 +1,131 @@
+---
+title: "Project 0 Report"
+author: "Rachel Weber"
+date: "August 28, 2018"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(CIDAtools)
+library(pander)
+library(ggplot2)
+library(gridExtra)
+library(car)
+library(dplyr)
+```
+
+```{r, echo = F}
+# read data
+dat <- read.csv(file = "C:/Users/weberra/Downloads/Project0_dental_data.csv", header = T)
+
+# make treatment factors
+dat$trtgroup <- as.factor(dat$trtgroup)
+dat$sex <- as.factor(dat$sex)
+dat$race <- as.factor(dat$race)
+dat$smoker <- as.factor(dat$smoker)
+
+# round variables to 2 sig figs
+#dat[,c(8:11)] <- round(dat[,c(8:11)], 2)
+#dat[,c(5)] <- round(dat[,c(5)])
+
+# calculate changes (positive if improvement)
+dat$delta_attach <- dat$attachbase - dat$attach1year
+dat$delta_depth <- dat$pdbase - dat$pd1year
+
+# get complete cases so we can do predictions and R-squared
+dat1 <- dat[complete.cases(dat),]
+
+# summarize incomplete treatment groups
+drop <- dat[!complete.cases(dat),]
+dropped <- drop %>% 
+  group_by(trtgroup) %>% 
+  summarise(n = n())
+
+```
+
+## Introduction
+
+The data contain `r length(unique(dat$id))` people, `r length(unique(dat1$id))` of whom have no missing data. The question addressed in this report asks if one of the gel treatments used to improve gum health had a greater impact on patients after 1 year of use than others. Patients were given a placebo gel, no gel at all, or one of 3 levels of a gel containing medication. The study was randomized and 26 people were assigned to each treatment group. Table 1 shows the demographic distribution of the study population.
+
+```{r, echo = F}
+t1 <- Table1(c("sex", "race", "age", "smoker"), colvar = NULL, data = dat, verbose = T)
+t1[,1] <- c("", "", "Sex", "Male", "Female", "Smoking Status", "Nonsmoker", "Smoker", "Missing", "Race", "Native American", "African American", "Asian", "White", "", "Age", "Missing")
+pander(t1, caption = "Table 1: Demographic Information")
+```
+
+A good portion of participants were current smokers and since smoking is known to affect oral health, adjusting for smoking status when assessing treatment effects will be important.  Though `r length(unique(dat$id))` were randomized, 101 will be used for analysis owing to their complete measurement status. The remaining `r length(unique(dat$id))-length(unique(dat1$id))` people without all measures will not be utilized.
+
+## Methods
+Before formal analysis began, some exploratory work was done to find trends in the data. Figure 1 below shows the relationship between patient values measured at baseline, and those measured at 1 year. There is a moderate linear relationship between the variables, seen by the large $$R^2$$ values, which indicates that including baseline values in a predictive model will be important in this studyfor the sake of improving predictive power.
+
+```{r, echo = F}
+m1 <- lm(attach1year ~ attachbase, data = dat)
+# m1$r.squared is .8931
+m2 <- lm(pd1year ~ pdbase, data = dat)
+# m2$r.squared is .7086
+
+g1 <- ggplot(dat, aes(attachbase, attach1year)) + 
+        geom_point() + theme_minimal() +
+        geom_smooth(method = lm) + xlab("Attchment at Baseline") + ylab("Attachment at 1 year") +
+        annotate("text", x = 4, y = 1, label = "R-squared = .89", fontface = 1)
+g2 <- ggplot(dat, aes(pdbase, pd1year)) + 
+        geom_point() + theme_minimal() +
+        geom_smooth(method = lm) + xlab("Depth and Baseline") + ylab("Depth at 1 year") +
+        scale_x_continuous(limits = c(1,5), breaks = c(1,2,3,4,5)) +
+        annotate("text", x = 4, y = 2, label = "R-squared = .71", fontface = 1)
+
+grid.arrange(g1, g2, ncol = 2, top = "Predictive Ability of Baseline Levels")
+```
+The `r length(unique(dat1$id))` people with both before and after measurements were used for model assessment. `r dropped[dropped$trtgroup == "5",]$n` patients in treatment group 5 did not complete the study. This number accounts for `r round(dropped[dropped$trtgroup == "5",]$n/sum(dropped$n)*100, 1)`% of the people who dropped out, a higher proportion than expected by chance. 
+Change in depth and attachment between baseline and 1 year was calculated to create the outcomes for modeling. 1 year values were subtracted from baseline values so positive difference scores are indicative of improvement in gum health.
+
+## Results
+
+Since hydrating the gums can improve attachment and depth, 2 controls were used. One where patients received no gel for 1 year, and one were they used a gel that contained no active medication. T-tests comparing changes in gum depth and attachment between the two groups were run and the results are shown below.
+```{r, echo = F, warning = F}
+# nrow(dat1[dat1$trtgroup == "1",]) 22 patients
+# nrow(dat1[dat1$trtgroup == "2",]) 23 patients
+
+t2 <- matrix(NA, nrow = 3, ncol = 4)
+t2[,1] <- c("", "Attachment Change", "Depth Change")
+colnames(t2) <- c("", "Placebo (N=22)", "Control (N=23)", "P-value")
+
+t2[1,2] <- "mean(sd)"
+t2[1,3] <- "mean(sd)"
+t2[2,2] <- paste(round(mean(dat[dat$trtgroup == 1,]$delta_attach, na.rm = T), 2),
+                 "(", round(sd(dat[dat$trtgroup == 1,]$delta_attach, na.rm = T), 2),")", sep="")
+t2[2,3] <- paste(round(mean(dat[dat$trtgroup == 2,]$delta_attach, na.rm = T), 2),
+                 "(", round(sd(dat[dat$trtgroup == 2,]$delta_attach, na.rm = T), 2),")", sep="")
+t2[3,2] <- paste(round(mean(dat[dat$trtgroup == 1,]$delta_depth, na.rm = T), 2),
+                 "(", round(sd(dat[dat$trtgroup == 1,]$delta_depth, na.rm = T), 2),")", sep="")
+t2[3,3] <- paste(round(mean(dat[dat$trtgroup == 2,]$delta_attach, na.rm = T), 2),
+                 "(", round(sd(dat[dat$trtgroup == 2,]$delta_attach, na.rm = T), 2),")", sep="")
+t2[2,4] <- round(t.test(dat[dat$trtgroup == 1,]$delta_attach, 
+                       dat[dat$trtgroup == 2,]$delta_attach)$p.value, 4)
+t2[3,4] <- round(t.test(dat[dat$trtgroup == 1,]$delta_depth, 
+                       dat[dat$trtgroup == 2,]$delta_depth)$p.value, 4)
+pander(t2)
+```
+
+Neither p-value is significant. This indicates that there was no effect of the gel alone in improvement of a patient's gum tissue over that seen in controls.
+
+An anova test assessing treatment effect on change in attachment indicated that overall treatment was significant (p-value: .117). After adjustment for baseline attachment and other demographic variables, treatment had no effect on gum attachment after 1 year.
+
+```{r, echo = F}
+m1 <- lm(delta_attach ~ trtgroup + attachbase + smoker + age + sex, data = dat)
+pander(Anova(m1))
+```
+
+An anova test assessing change in depth predicted by treatment group was non-significant (p-value: .112). After adjustment for baseline attachment and other demographic variables, treatment had no effect on pocket depth after 1 year.
+
+```{r, echo = F}
+m2 <- lm(delta_depth ~ trtgroup + pdbase + smoker + age + sex, data = dat)
+pander(Anova(m2))
+```
+
+## Conclusion:
+Our results indicate that attachment loss and pocket depth of patient gums are not impacted by treatment levels in the medicated gel used in this study. No treatment confered a significant change in measured outcome. Additionally, we found that there is no difference in gum health between people who receive no gel, and those who receive a placebo gel. Though it was suspected that the increased hydration that results from using a gel could itself improve gum health, the data do not support this hypothesis.
+A larger portion of patients in treatment group 5 did not complete follow-up assessments than those in other groups. We consider their data 'not missing at random' and it may be worth investigating why a disproportionately larger group of people assigned high levels of medicated gel failed to complete the study. 
+

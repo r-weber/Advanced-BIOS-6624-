@@ -1,0 +1,331 @@
+---
+title: "Project 1 Report"
+author: "Rachel Weber"
+date: "September 19, 2018"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(CIDAtools)
+library(ggplot2)
+library(readr)
+library(rjags)
+library(mcmcse)
+library(gridExtra)
+library(car)
+library(pander)
+library(tidyverse)
+
+# note people who drop and mention they're not too different from completed pop'n
+```
+
+```{r, echo = F}
+dat1 <- read.csv(file = "C:/Users/weberra/Documents/Classwork/Advanced/bios6624-r-weber/Project1/DataProcessed/hiv_for_graphs.csv", sep = ",")
+
+dat2 <- read.csv(file = "C:/Users/weberra/Documents/Classwork/Advanced/bios6624-r-weber/Project1/DataProcessed/hiv_wide.csv", sep = ",")
+
+bin_col <- c(5:7, 9:14, 18, 20:23, 26:29, 31:32, 34)
+dat1[, bin_col] <- lapply(dat1[, bin_col], as.factor)
+
+bin_col <- c(4:6, 8:13, 17, 19:22, 25:28, 30:31, 58)
+dat2[, bin_col] <- lapply(dat2[, bin_col], as.factor)
+
+# complete cases for all relevant columns
+dat3 <- dat2[complete.cases(dat2[,c(7,19,26:27,29,32,57,58)]),]
+dat3$hard_drugs.2 <- as.factor(dat3$hard_drugs.2)
+dat3$hard_drugs.0 <- as.factor(dat3$hard_drugs.0)
+```
+
+## Background
+This report addresses the dearth of information about how hard drugs use impacts treatment response in HIV positive patients. The data are comprised of gay and bisexual men who are part of an ongoing cohort study on treatment of HIV/AIDS with HAART medication. All men are introduced at baseline prior to starting treatment and are followed for up to 8 years with biological measures of health and mental/physical assessments of health. Other demographic variables were collected including education, income, drug/alcohol habits, smoking status, and others. Additionally, patient adherence to the HAART treatment was recording after baseline to know how well patients were sticking to medication protocol.
+
+The researchers are specifically assessing the difference in 4 measures (viral load, T-Cell Count, Mental Health, Physical Health) of health at 2 years between men who reported hard drugs use and those who didn't. There were 715 total patients studied between baseline and year 2. All patients were first filtered to remove patients who did not report demographic information at their baseline clinic visit. Additionally, patients with unrealistic BMI values had their baseline BMI measures removed. The models were then run based on either complete lab results (for Viral Load and T-Cell count) or on complete health assessment results (for mental and physical health). All `r nrow(dat3[complete.cases(dat3$log_vload.2),])` patients who remained after data cleaning had viral load and T Cell counts measured at year 2 and `r nrow(dat3[complete.cases(dat3$agg_phys.2),])` had scores for mental and physical health. Below is a descriptive table for the full 474 people in the analysis set.
+
+```{r, echo = F}
+# Table 1 for lab measures
+first <- dat3[complete.cases(dat3$log_vload.2),]
+t1 <- Table1(dat3, c("race.0", "smoke.0", "age.0", "bmi.0", "educbas.0", "hard_drugs.0"), colvar = NULL, 
+             verbose = T, incl_missing = F)
+pander(t1, caption = "Table 1: Baseline Demographic Information")
+```
+
+```{r, echo = F}
+# Table 1 for mental/physical health
+first <- dat3[complete.cases(dat3$agg_ment.2),]
+t1 <- Table1(first, c("race.0", "smoke.0", "age.0", "bmi.0", "educbas.0", "hard_drugs.0"), colvar = NULL, 
+             verbose = T, incl_missing = F)
+pander(t1, caption = "Table 2: Demographic information for men with mental and physical health data")
+```
+
+
+Figure 1 shows the trends in each outcome measure between year 0 and year 2. Viral load and T-Cell count trend quite similarly between groups and both show marked improvement by year 2. Mental health increases for both groups by year two but does have a less consistent trend. Physical health seemed to trend upward for patients reporting hard drugs use while slightly downward for patients who did not. 
+
+```{r, echo = F}
+# plotting vload over time
+to_string <- as_labeller(c(`0` = "No hard Drugs", `1` = "Hard Drugs"))
+dat1 <- dat1[!is.na(dat1$agg_ment) & !is.na(dat1$agg_phys) & !is.na(dat1$leu3n) & !is.na(dat1$vload),]
+
+g1 <- ggplot(na.omit(dat1), aes(years, log_vload, group = newid)) + 
+        stat_summary(aes(group = 1), geom = "point", fun.y = mean, shape = 17, size = 3, na.rm = T) +
+        facet_grid(.~ hard_drugs, labeller = to_string) + 
+        xlab("Year") + ylab("Log(viral load)") +
+        ggtitle("Viral Load") +
+        scale_x_continuous(breaks = c(0, 1,2)) + theme_minimal()
+g2 <- ggplot(na.omit(dat1), aes(years, leu3n, group = newid)) + 
+        stat_summary(aes(group = 1), geom = "point", fun.y = mean, shape = 17, size = 3, na.rm = T) +
+        facet_grid(.~ hard_drugs, labeller = to_string) +
+        scale_x_continuous(breaks = c(0, 1,2)) +
+        xlab("Year") + ylab("Cell Count") +
+        ggtitle("T Cell Count") + theme_minimal()
+g3 <- ggplot(na.omit(dat1), aes(years, agg_phys, group = newid)) + 
+        stat_summary(aes(group = 1), geom = "point", fun.y = mean, shape = 17, size = 3, na.rm = T) +
+        facet_grid(.~ hard_drugs, labeller = to_string) +
+        scale_x_continuous(breaks = c(0, 1,2)) + 
+        xlab("Year") + ylab("Rating") +
+        ggtitle("Physical Health") + theme_minimal()
+g4 <- ggplot(na.omit(dat1), aes(years, agg_ment, group = newid)) + 
+        stat_summary(aes(group = 1), geom = "point", fun.y = mean, shape = 17, size = 3, na.rm = T) +
+        facet_grid(.~ hard_drugs, labeller = to_string) +
+        scale_x_continuous(breaks = c(0, 1,2)) + 
+        xlab("Year") + ylab("Rating") +
+        ggtitle("Mental Health") + theme_minimal()
+
+
+grid.arrange(g1, g2, g3, g4, ncol = 2, nrow = 2)
+```
+
+### Methods
+
+To prepare for model building, some variables were restructured to better meet analysis needs. Such restructuring included the condensing of education into 'less than college level', 'college degree', and 'more than college'. In addition, Smoking was condensed to 'non-smokers' (which included former smokers) and 'current smokers' and Race was converted to 'White' and 'Non-white' due to lack of diversity in the study population. People who dropped out of the study by year 2 were examined to see if they differed significantly from those who continued up through that point. The population lost to follow up was not noticably different from the completed population (table XX in supplement) so further exploration into their purpose for leaving need not be pursued. Unfortunately, 27 of 66 people who reported using drugs at baseline were in the group lost to follow-up, so sample size diminished significantly for that variable.
+
+Since the study is not randomized, changes in outcomes from baseline to year 2 were used for analysis. Viral load and T Cell Count were quite skewed and were $$log_{10}$$ tranformed prior to creation of the change variable. 
+
+Partial F-Tests were used to assess if the addition of hard drug use to a model already accounting for demographic variables improved predictive power for each outcome. T-Cell count and Physical Health both were seen to benefit from the addition of hard drugs (p values: <.001 and .013, respectively).
+
+This was followed by linear regression adjusting for age, BMI, Adherence at year 2, race, income, smoking status, and outcome measure value at baseline. The linear model was assessed in a Frequentist and Bayesian framework.
+
+```{r, echo = F}
+# Frequentist Model
+# m1 <- lm(delta_vload ~ hard_drugs.0 + age.0 + bmi.0 + adh.2 +
+#            race.0 + educbas.0 + smoke.0 + log_vload.0, data = dat3)
+# pval <- summary(m1)$coefficients[,1]
+# pval <- cbind(pval, round(coef(summary(m1))[,4], 4))
+# pval <- cbind(pval, confint(m1)[,1])
+# pval <- cbind(pval, confint(m1)[,2])
+# pval <- as.data.frame(pval)
+# colnames(pval) <- c("Estimate", "P-Value", "LowerCI", "UpperCI")
+# pval$'95% CI' <- paste("(",round(pval$LowerCI, 2),", ",round(pval$UpperCI, 2),")", sep="")
+# pval <- pval[-c(3, 4)]
+# 
+# pander(pval)
+
+```
+
+### Results 
+
+Table XX shows the model estimates for predicting T-Cell count at 2 years. The table includes both frequentist estimates and Bayesian. Since we used non-informative priors for the model variables, the Bayesian estimates are nearly identical to those from the Frequentist framework.
+
+### T Cell Count
+```{r, echo = F}
+# Frequentist Model
+# m2 <- lm(delta_tcell ~ hard_drugs.0 + age.0 + bmi.0 + adh.2 + 
+#            race.0 + educbas.0 + smoke.0 + log_tcell.0, data = dat3)
+# pval <- summary(m2)$coefficients[,1]
+# pval <- cbind(pval, round(coef(summary(m2))[,4], 4))
+# pval <- cbind(pval, confint(m2)[,1])
+# pval <- cbind(pval, confint(m2)[,2])
+# pval <- as.data.frame(pval)
+# colnames(pval) <- c("Estimate", "P-Value", "LowerCI", "UpperCI")
+# pval$'95% CI' <- paste("(",round(pval$LowerCI, 2),", ",round(pval$UpperCI, 2),")", sep="")
+# pval <- pval[-c(3, 4)]
+# 
+# pander(pval)
+```
+
+```{r, echo = F}
+# y <- c(dat3$delta_tcell)
+# 
+# X <- model.matrix(~ hard_drugs.0 + age.0 + bmi.0 + adh.2 +
+#                     race.0 + educbas.0 + smoke.0 + log_tcell.0, data = dat3)
+# N <- nrow(X)
+# p <- ncol(X)
+# 
+# a <- 0.001
+# b <- 0.001
+# m <- rep(0, p) # this is where the mean is specified, changed from 0 to .182
+# R <- matrix(0, p, p)
+# diag(R) <- 0.0001
+# 
+# jags_dat <- list(y = y, X = X, N = N, p = p,
+#                  a = a, b = b, m = m, R = R)
+# 
+# mod <- jags.model("C:/Users/weberra/Documents/Classwork/Advanced/InClass/Bayesian/linMod.jags", data = jags_dat, n.adapt = 1000, n.chains = 2)
+# 
+# iter <- 25000
+# samples <- coda.samples(mod, variable.names = c("beta", "sigma2"), n.iter = iter)
+# 
+# 
+# hpd <- function(x, alpha = 0.05){
+# 
+#   n = length(x)
+#   m = round(n * alpha)
+#   x = sort(x)
+#   y = x[(n - m + 1):n] - x[1:m]
+#   z = min(y)
+#   k = which(y == z)[1]
+#   c(x[k], x[n - m + k])
+# 
+# }
+# 
+# draws <- as.matrix(samples)
+# out_mat <- matrix("", nrow = ncol(draws), ncol = 5)
+# out_mat[,1] <- c(colnames(X), "sigma2") # names
+# out_mat[,2] <- apply(draws, 2, function(x) round(mcse(x)$est, 3)) # batch mean
+# out_mat[,3] <- apply(draws, 2, function(x) round(mcse(x)$se, 3)) # MCSE
+# out_mat[,4] <- round(apply(draws, 2, sd), 3) # Std. Dev.
+# out_mat[,5] <- apply(draws, 2, function(x)
+#   paste("(", round(hpd(x)[1], 3), ", ", round(hpd(x)[2], 3), ")", sep = "")) # HPDI
+# colnames(out_mat) <- c("Parameter", "Estimate", "MCSE", "Std. Dev.", "95% HPDI")
+# 
+# pander(out_mat)
+
+# explore support of the parameter space
+# samples_dic <- dic.samples(mod, n.iter = iter, type = "pD")
+# plot(samples)
+  # looks good. Distribution seems well explored
+```
+
+Table XX shows that hard drugs is estimated to reduce T-Cell count improvement by about .2 log units of cells. This result is suggest in both the Frequentist and Bayesian model results with a confidence interval of .3 log units of cells to .13 log units. Baseline T-Cell count was also a significant predictor of improvement in both models. It is estimated that for every 1 log unit increase in cells, the improvement expected of a patient decreases by .48 log units. This makes biological sense as the better off a patient's T-Cell counts were at baseline, the less they had to gain to reach 'healthy' levels with HAART.
+
+
+```{r, echo = F}
+# m3 <- lm(delta_mental ~ hard_drugs.0 + age.0 + bmi.0 + adh.2 +
+#            race.0 + educbas.0 + smoke.0 + agg_ment.0, data = dat3)
+# pval <- summary(m3)$coefficients[,1]
+# pval <- cbind(pval, round(coef(summary(m3))[,4], 4))
+# pval <- cbind(pval, confint(m3)[,1])
+# pval <- cbind(pval, confint(m3)[,2])
+# pval <- as.data.frame(pval)
+# colnames(pval) <- c("Estimate", "P-Value", "LowerCI", "UpperCI")
+# pval$'95% CI' <- paste("(",round(pval$LowerCI, 2),", ",round(pval$UpperCI, 2),")", sep="")
+# pval <- pval[-c(3, 4)]
+# 
+# pander(pval)
+```
+
+
+### Physical Health
+
+Hard drug use reported at baseline had a negative effect on physical health scores. While the change in score for the average patient was estimated to improve by 18 points, hard drug use decreased this estimate by 4 points. Additionally, older men were estimated to have slightly lower improvements, though this difference may not be biologically significant.
+```{r, echo = F}
+# m4 <- lm(delta_phys ~ hard_drugs.0 + age.0 + bmi.0 + adh.2 +
+#            race.0 + educbas.0 + smoke.0 + agg_phys.0, data = dat3)
+# pval <- summary(m4)$coefficients[,1]
+# pval <- cbind(pval, round(coef(summary(m4))[,4], 4))
+# pval <- cbind(pval, confint(m4)[,1])
+# pval <- cbind(pval, confint(m4)[,2])
+# pval <- as.data.frame(pval)
+# colnames(pval) <- c("Estimate", "P-Value", "LowerCI", "UpperCI")
+# pval$'95% CI' <- paste("(",round(pval$LowerCI, 2),", ",round(pval$UpperCI, 2),")", sep="")
+# pval <- pval[-c(3, 4)]
+# 
+# pander(pval)
+```
+
+```{r, echo = F}
+# bayesian for physical health
+# y <- c(dat3$delta_phys)
+# X <- model.matrix(~ hard_drugs.0 + age.0 + bmi.0 + adh.2 +
+#                     race.0 + educbas.0 + smoke.0 + agg_phys.0, data = dat3)
+# N <- nrow(X)
+# p <- ncol(X)
+# a <- 0.000001
+# b <- 0.000001
+# m <- rep(0, p)
+# R <- matrix(0, p, p)
+# diag(R) <- 0.000001 # widening variance for good measure
+# 
+# jags_dat <- list(y = y, X = X, N = N, p = p,
+#                  a = a, b = b, m = m, R = R)
+# 
+# mod4 <- jags.model("C:/Users/weberra/Documents/Classwork/Advanced/InClass/Bayesian/linMod.jags", data = jags_dat, n.adapt = 1000, n.chains = 2)
+# 
+# iter <- 50000
+# samples <- coda.samples(mod4, variable.names = c("beta", "sigma2"), n.iter = iter)
+# 
+# hpd <- function(x, alpha = 0.05){
+#   n = length(x)
+#   m = round(n * alpha)
+#   x = sort(x)
+#   y = x[(n - m + 1):n] - x[1:m]
+#   z = min(y)
+#   k = which(y == z)[1]
+#   c(x[k], x[n - m + k])
+# }
+# 
+# draws <- as.matrix(samples)
+# out_mat <- matrix("", nrow = ncol(draws), ncol = 5)
+# out_mat[,1] <- c(colnames(X), "sigma2") # names
+# out_mat[,2] <- apply(draws, 2, function(x) round(mcse(x)$est, 3)) # batch mean
+# out_mat[,3] <- apply(draws, 2, function(x) round(mcse(x)$se, 3)) # MCSE
+# out_mat[,4] <- round(apply(draws, 2, sd), 3) # Std. Dev.
+# out_mat[,5] <- apply(draws, 2, function(x)
+#   paste("(", round(hpd(x)[1], 3), ", ", round(hpd(x)[2], 3), ")", sep = "")) # HPDI
+# colnames(out_mat) <- c("Parameter", "Estimate", "MCSE", "Std. Dev.", "95% HPDI")
+# 
+# pander(out_mat)
+
+```
+
+
+```{r, echo = F, fig.width = 5.5}
+# mean differences at 2 years
+
+# just T-Cell count has significant differences with hard drugs
+dat3 <- read.csv(file = "C:/Users/weberra/Documents/Classwork/Advanced/bios6624-r-weber/Project1/DataProcessed/hivfinal.csv", sep = ",")
+
+mean_qt <- plyr::ddply(dat3, "hard.drugs0", summarise, group.mean = mean(delta.log.leu3n, na.rm = T))
+
+g2<- ggplot(dat3, aes(x = delta.log.leu3n, fill = hard.drugs0)) + 
+  geom_density(alpha = .5) +
+  geom_vline(data = mean_qt, aes(xintercept = group.mean),
+             linetype = "dashed", size = 1) +
+  ggtitle("Change in T Cell Count") +
+  scale_fill_manual(name = "Hard Drugs", labels = c("No", "Yes"), values=c("darkolivegreen4","#56B4E9")) + 
+  scale_color_discrete(guide = FALSE) +
+  xlab("Change in T Cell Count") + ylab("Density")+ theme_minimal()
+g2
+
+mean_qt <- plyr::ddply(dat3, "hard.drugs0", summarise, group.mean = mean(delta.agg.phys, na.rm = T))
+
+g3<- ggplot(dat3, aes(x = delta.agg.phys, fill = hard.drugs0)) + 
+  geom_density(alpha = .5) +
+  geom_vline(data = mean_qt, aes(xintercept = group.mean),
+             linetype = "dashed", size = 1) +
+  ggtitle("Change in Physical Health") +
+  scale_fill_manual(name = "Hard Drugs", labels = c("No", "Yes"), values=c("darkolivegreen4","#56B4E9")) + 
+  scale_color_discrete(guide = FALSE) +
+  xlab("Change in Physical Health") + ylab("Density")+ theme_minimal()
+g3
+```
+
+### Discussion
+
+Partial F-tests suggest that no relevant information is gained in predicting change in Viral Load or Mental Health when we add hard drugs to a predictive model. Additionally, DIC model comparisons--a Bayesian framework method--agree that both models are not improved with hard drugs. DIC did support that change in physcial health and change in T Cell Count where better predicted when hard drugs was included in a predictive model. In this, partial F-tests agree.
+
+Our results suggest that the hypothesis that hard drugs impairs a person's immune system, impacting improvement in health across laboratory and survey measures, is supported in the measure of T Cells but not so in measure of viral Load. Patients who used hard drugs were anticipated to have less improvement in T Cell counts between immediately prior and two years after initiation of a HAART regimen (95% CI in log(change): -0.28 to -0.15). Decreases in Viral Load did not differ significantly between hard drug users and non-users (95% CI in log(change): -0.33 to 0.47), suggesting that improvement in this measure of health is not negatively impacted by hard drug use. Physcial health, measured on a scale of 1-100 is indicated to be negatively impacted by hard drug use, decreasing by an average of 4 points from expected improvement of non-using individuals. Since the scale for health has such a broad range, it remains to be shown if this point difference is clinically significant. Like viral load, mental health was not shown to be impacted by hard drug use. Users were expected to show as much improvement in mental health as their non-using counterparts. These results are supported both in the Frequentist and Bayesian frameworks.
+
+
+
+
+
+
+
+
+
+
+
