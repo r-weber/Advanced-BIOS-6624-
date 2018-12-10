@@ -1,0 +1,91 @@
+---
+title: "Final Report"
+author: "Rachel Weber"
+date: "November 17, 2018"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(CIDAtools)
+library(pander)
+library(VIM)
+library(ggplot2)
+```
+
+```{r, echo = F}
+# read in and modification
+dat <- read.csv(file = "C:/Users/weberra/Documents/Classwork/Advanced/bios6624-r-weber/Project3/DataRaw/vadata2.csv")
+factor_vars <- c(2:4)
+dat[,factor_vars] <- lapply(dat[,factor_vars] , factor)
+
+dat <- dat[dat$proced != "2",]
+
+table(dat$asa, dat$death30)
+  # there were very few people with asa of 1 and all survived beyond 30 days. Let's combine asa 1 and 2
+dat[dat$asa == "1" & !is.na(dat$asa),]$asa <- "2"
+
+# some BMIs are unrealistic. Let's remove those above 54
+# there is a bmi of 2.5, which is crazy low, but realistically not impossible. We'll keep them for now
+dat[dat$bmi > 60 & !is.na(dat$bmi),]$bmi <- NA
+
+```
+
+## Background
+
+26,489 rows in the data set, spanning 6 consecutive six month periods. The data contain patient information for height, weight, BMI, albumin levels, ASA, procedure code, and if the patient died within 30 days. Table 1 below summarizes patient info, stratified by death within 30 days.
+
+*Table 1: Patient Information by Gender*
+
+```{r, echo = F}
+t <- Table1(data = dat, rowvars = c(proced, asa, weight, height, bmi, albumin), colvar = death30, incl_missing = T, verbose = T)
+pander(t)
+```
+
+As seen above, albumin had a large amount of missing data. Knowing this was a lab results typically not included until recently, some missingness is expected. To ensure that the pattern of missingness is random, and will not impact our findings, we performed some data visualization. Figure 1 in the appendix is one plot of many used to analyze the pattern. It shows, using box plots, the distribution of BMI for patients with (blue) and without (red) albumin measures. The boxplots are essentially identical, telling us that albumin is not missing for certain values of BMI.
+
+We also compared the percent of patients who died within 30 days. 6% of people missing albumin measurements diead within 30 days. This was highly similar to the percent of people with albumin measurments who died--4%. AFter much deliberation, it was decided that albumin is missing at random, and we need not be concerned about bias in our results due to its missingness.
+
+## Methods
+Our objective was to determine if the death rates in VA hospitals during period 39 deviated from those we expected given historic data. Before analysis could begin, some data cleaning was necessary. BMI measures below 60 were considered by the investigator to be medically possible and acceptable. Any values above 60 were removed. It was also found that very few patients had an ASA of 1, so those with ASA 1 or 2 were combined to category 2. This was deemed medically reasonable given the highly similar status of patients in the two groups. A few patients had procedure code =2. We determined these instances were typos and those with such had their procedure codes removed.
+
+Modeling was performed using R version 1.1.453. Expected values for period 39 were calculated by performing a logistic regression on death within 30 days with the glm function. Data for to build the model contained only patients in periods prior to 39-- totaling 22,179 patients in the subset. Model covariates were albumin, BMI, procedure, and ASA.  Non-parametric bootstrapping was then used to repeatedly draw from the data, ensuring equal draws from each hospital. Each random sample from the data set was used to build the model and expected values for period 39 were calculated from the resulting beta coefficients. The predict function was used for expected value estimation.
+
+
+
+
+
+
+```{r}
+######### Table 2
+no_alb <- read.csv(file = "C:/Users/weberra/Documents/Classwork/Advanced/bios6624-r-weber/Project3/DataProcessed/boot_model_no_alb.csv")
+
+est_data <- read.csv("C:/Users/weberra/Documents/Classwork/Advanced/bios6624-r-weber/Project3/DataProcessed/boot_model.csv")
+
+bin_ci <- read.csv("C:/Users/weberra/Documents/Classwork/Advanced/bios6624-r-weber/Project3/DataProcessed/binom_ci.csv")
+
+ft <- matrix(nrow = 44, ncol = 4)
+colnames(ft) <- c("Hospital", "Obs. Death Rate", "95% Bootstrap CI", "95% Binomial CI")
+ft[,1] <- seq(1,44, by = 1)
+ft[,2] <- bin_ci[,2]
+ft[,3] <- paste(ifelse(est_data$lower.ci > 0, est_data$lower.ci, 0), "-",est_data$upper.ci, sep = "")
+ft[,4] <- paste(bin_ci[,3])
+pander(ft)
+```
+
+```{r}
+probs <- matrix(nrow = 44, ncol = 2)
+
+for(i in 1:44){
+  hospital <- recent[recent$hospcode == i,]
+  est <- est_data[est_data$hospital == i,]
+  n <- nrow(hospital)
+  p <- nrow(hospital[hospital$death30 == 1,])/n
+  probs[i,1] <- as.data.frame(dbinom(p*n, n, est$mean_pred))
+}
+colnames(probs) <- c("probs", "hospital")
+probs[,2] <- est_data$hospital
+
+```
+
