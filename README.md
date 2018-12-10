@@ -8,9 +8,9 @@
 
 File | Description
 ---|---------------------------------------------------------------------
-Project 0 | Due Sept 12th; 10% of grade; Dental data
-Project 1 | Due Oct 8th; 20% of grade; HIV data
-Project 2 | 20% of grade
-Project 3 | 20% of grade
-Project 4 | 20% of grade
+Project 0 | 10% of grade; Oral gel randomized trial
+Project 1 | 20% of grade; Hard drugs use in HIV patients
+Project 2 | 20% of grade; Simulation for Misfit models
+Project 3 | 20% of grade; Bootstrapping VA procedure outcomes
+Project 4 | 20% of grade; Stats Section for Grant
 >>>>>>> master
