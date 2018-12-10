@@ -1,8 +1,3 @@
-<<<<<<< HEAD
-# BIOS6624-Rachel Weber
-# Fall 2018
-### readme edits in R-Studio
-=======
 # Bios6624-Rachel Weber
 ## Fall Semester 2018
 
